@@ -1,5 +1,4 @@
 import os
-import base64
 from Crypto.Util.Padding import pad, unpad
 
 SBOX = [
@@ -169,22 +168,27 @@ def encrypt_file_ascii(input_file, output_file, key):
     with open(input_file, 'rb') as f:
         data = f.read()
     encrypted = encrypt_cbc(data, key)
-    encoded = base64.b64encode(encrypted).decode('ascii')
+    hex_output = encrypted.hex()
     with open(output_file, 'w', encoding='ascii') as f:
-        f.write(encoded)
-    print(f"Encrypted content saved as ASCII Base64 to '{output_file}'")
+        f.write(hex_output)
+    print(f"Encrypted content saved as hex to '{output_file}'")
 
 def decrypt_file_ascii(input_file, output_file, key):
     with open(input_file, 'r', encoding='ascii') as f:
-        encrypted_b64 = f.read()
-    encrypted = base64.b64decode(encrypted_b64.encode('ascii'))
+        hex_data = f.read().strip()
+    try:
+        encrypted = bytes.fromhex(hex_data)
+    except ValueError:
+        print("Error: Input file does not contain valid hexadecimal data.")
+        return
     decrypted = decrypt_cbc(encrypted, key)
     with open(output_file, 'wb') as f:
         f.write(decrypted)
-    print(f"Decrypted content saved to '{output_file}' (may be unintelligible if key is incorrect)")
+    print(f"Decrypted content saved to '{output_file}'")
+
 
 def main():
-    print("=== AES-128 CBC Encryption/Decryption (ASCII Base64) ===")
+    print("=== AES-128 CBC Encryption/Decryption (Hex Output) ===")
     mode = input("Encrypt or Decrypt? (E/D): ").strip().upper()
     key_input = input("Enter a 16-character key: ").encode()
     if len(key_input) != 16:
