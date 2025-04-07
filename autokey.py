@@ -6,13 +6,24 @@ def format_text(text, preserve_format=False):
     return ''.join(filter(str.isalpha, text)).upper()
 
 
-def letter_to_num(c):
-    return ord(c.upper()) - ord('A')
+def char_to_index(c):
+    if c.isupper():
+        return ord(c) - ord('A'), 'upper'
+    elif c.islower():
+        return ord(c) - ord('a'), 'lower'
+    elif c.isdigit():
+        return ord(c) - ord('0'), 'digit'
+    return None, None
 
+def index_to_char(index, ctype, original_char):
+    if ctype == 'upper':
+        return chr((index % 26) + ord('A'))
+    elif ctype == 'lower':
+        return chr((index % 26) + ord('a'))
+    elif ctype == 'digit':
+        return chr((index % 10) + ord('0'))
+    return original_char  # fallback
 
-def num_to_letter(n, original_char='A'):
-    base = ord('A') if original_char.isupper() else ord('a')
-    return chr(n + base)
 
 
 def autokey_encrypt(plaintext, initial_key, preserve_format=False):
@@ -22,17 +33,21 @@ def autokey_encrypt(plaintext, initial_key, preserve_format=False):
     key_index = 0
 
     for i, char in enumerate(formatted):
-        if char.isalpha():
-            p_val = letter_to_num(char)
+        val, ctype = char_to_index(char)
+        if ctype:
             k_val = key_stream[key_index]
-            c_val = (p_val + k_val) % 26
-            new_char = num_to_letter(c_val, char)
+            if ctype == 'digit':
+                c_val = (val + k_val) % 10
+            else:
+                c_val = (val + k_val) % 26
+            new_char = index_to_char(c_val, ctype, char)
             ciphertext += new_char
-            key_stream.append(p_val)
+            key_stream.append(val)
             key_index += 1
         else:
             ciphertext += char if preserve_format else ''
     return ciphertext
+
 
 
 def autokey_decrypt(ciphertext, initial_key, preserve_format=False):
@@ -42,17 +57,21 @@ def autokey_decrypt(ciphertext, initial_key, preserve_format=False):
     key_index = 0
 
     for i, char in enumerate(formatted):
-        if char.isalpha():
-            c_val = letter_to_num(char)
+        val, ctype = char_to_index(char)
+        if ctype:
             k_val = key_stream[key_index]
-            p_val = (c_val - k_val + 26) % 26
-            new_char = num_to_letter(p_val, char)
+            if ctype == 'digit':
+                p_val = (val - k_val + 10) % 10
+            else:
+                p_val = (val - k_val + 26) % 26
+            new_char = index_to_char(p_val, ctype, char)
             plaintext += new_char
             key_stream.append(p_val)
             key_index += 1
         else:
             plaintext += char if preserve_format else ''
     return plaintext
+
 
 
 def process_file(input_file, output_file, initial_key, mode, preserve_format=False):
@@ -71,7 +90,7 @@ def process_file(input_file, output_file, initial_key, mode, preserve_format=Fal
         label = "Decrypted"
 
     with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(f"{label} Text:\n{result}\n")
+        f.write(f"{result}")
 
     print(f"{label} result saved to '{output_file}'.")
 
