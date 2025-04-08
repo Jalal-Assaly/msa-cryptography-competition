@@ -1,128 +1,90 @@
-import os
+def autokey_encrypt(hex_plaintext: str, initial_key: int) -> str:
+    plaintext_bytes = bytes.fromhex(hex_plaintext)
 
-def format_text(text, preserve_format=False):
-    if preserve_format:
-        return text
-    return ''.join(filter(str.isalpha, text)).upper()
-
-
-def char_to_index(c):
-    if c.isupper():
-        return ord(c) - ord('A'), 'upper'
-    elif c.islower():
-        return ord(c) - ord('a'), 'lower'
-    elif c.isdigit():
-        return ord(c) - ord('0'), 'digit'
-    return None, None
-
-def index_to_char(index, ctype, original_char):
-    if ctype == 'upper':
-        return chr((index % 26) + ord('A'))
-    elif ctype == 'lower':
-        return chr((index % 26) + ord('a'))
-    elif ctype == 'digit':
-        return chr((index % 10) + ord('0'))
-    return original_char  # fallback
-
-
-
-def autokey_encrypt(plaintext, initial_key, preserve_format=False):
-    formatted = format_text(plaintext, preserve_format)
-    ciphertext = ''
+    ciphertext = bytearray()
     key_stream = [initial_key]
     key_index = 0
 
-    for i, char in enumerate(formatted):
-        val, ctype = char_to_index(char)
-        if ctype:
-            k_val = key_stream[key_index]
-            if ctype == 'digit':
-                c_val = (val + k_val) % 10
-            else:
-                c_val = (val + k_val) % 26
-            new_char = index_to_char(c_val, ctype, char)
-            ciphertext += new_char
-            key_stream.append(val)
-            key_index += 1
-        else:
-            ciphertext += char if preserve_format else ''
-    return ciphertext
+    for byte in plaintext_bytes:
+        k = key_stream[key_index]
+        encrypted = (byte + k) % 256
+        ciphertext.append(encrypted)
+        key_stream.append(byte)
+        key_index += 1
+
+    return ciphertext.hex()
 
 
+def autokey_decrypt(hex_ciphertext: str, initial_key: int) -> str:
+    ciphertext_bytes = bytes.fromhex(hex_ciphertext)
 
-def autokey_decrypt(ciphertext, initial_key, preserve_format=False):
-    formatted = format_text(ciphertext, preserve_format)
-    plaintext = ''
+    plaintext = bytearray()
     key_stream = [initial_key]
     key_index = 0
 
-    for i, char in enumerate(formatted):
-        val, ctype = char_to_index(char)
-        if ctype:
-            k_val = key_stream[key_index]
-            if ctype == 'digit':
-                p_val = (val - k_val + 10) % 10
-            else:
-                p_val = (val - k_val + 26) % 26
-            new_char = index_to_char(p_val, ctype, char)
-            plaintext += new_char
-            key_stream.append(p_val)
-            key_index += 1
-        else:
-            plaintext += char if preserve_format else ''
-    return plaintext
+    for byte in ciphertext_bytes:
+        k = key_stream[key_index]
+        decrypted = (byte - k + 256) % 256
+        plaintext.append(decrypted)
+        key_stream.append(decrypted)
+        key_index += 1
+
+    return plaintext.hex()
 
 
-
-def process_file(input_file, output_file, initial_key, mode, preserve_format=False):
+def autokey_encrypt_file(initial_key, input_file="texts/input.txt", output_file="texts/autokey-encrypted.txt"):
     try:
         with open(input_file, 'r', encoding='utf-8') as f:
-            text = f.read()
+            hex_text = f.read().strip()
     except FileNotFoundError:
         print(f"Error: File '{input_file}' not found.")
         return
 
-    if mode == 'E':
-        result = autokey_encrypt(text, initial_key, preserve_format)
-        label = "Encrypted"
-    else:
-        result = autokey_decrypt(text, initial_key, preserve_format)
-        label = "Decrypted"
+    encrypted = autokey_encrypt(hex_text, initial_key)
 
     with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(f"{result}")
+        f.write(encrypted)
 
-    print(f"{label} result saved to '{output_file}'.")
+    print(f"Encrypted result saved to '{output_file}'.")
+
+
+def autokey_decrypt_file(initial_key, input_file="texts/autokey-encrypted.txt", output_file="texts/autokey-decrypted.txt"):
+    try:
+        with open(input_file, 'r', encoding='utf-8') as f:
+            hex_text = f.read().strip()
+    except FileNotFoundError:
+        print(f"Error: File '{input_file}' not found.")
+        return
+
+    decrypted = autokey_decrypt(hex_text, initial_key)
+
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(decrypted)
+
+    print(f"Decrypted result saved to '{output_file}'.")
 
 
 def main():
-    print("=== Autokey Cipher – Flexible Edition ===")
+    print("=== Autokey Cipher (Standalone Mode) ===")
+
     mode = input("Type 'E' to encrypt or 'D' to decrypt: ").strip().upper()
     if mode not in ('E', 'D'):
         print("Invalid mode. Use 'E' or 'D'.")
         return
 
-    batch = input("Do you want to process multiple files? (y/n): ").strip().lower() == 'y'
-
     try:
-        initial_key = int(input("Enter initial numeric key (0–25): ").strip()) % 26
+        initial_key = int(input("Enter initial numeric key (0–255): ").strip()) % 256
     except ValueError:
         print("Invalid numeric key.")
         return
 
-    preserve = input("Preserve formatting (spaces, punctuation, case)? (y/n): ").strip().lower() == 'y'
+    input_path = input("Enter input file path: ").strip()
+    output_path = input("Enter output file path: ").strip()
 
-    if batch:
-        count = int(input("How many files? "))
-        for i in range(count):
-            print(f"\n--- File {i+1} ---")
-            input_file = input("Input file: ").strip()
-            output_file = input("Output file: ").strip()
-            process_file(input_file, output_file, initial_key, mode, preserve)
+    if mode == 'E':
+        autokey_encrypt_file(initial_key, input_path, output_path)
     else:
-        input_file = input("Input file: ").strip()
-        output_file = input("Output file: ").strip()
-        process_file(input_file, output_file, initial_key, mode, preserve)
+        autokey_decrypt_file(initial_key, input_path, output_path)
 
 
 if __name__ == "__main__":

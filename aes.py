@@ -1,6 +1,7 @@
 import os
 from Crypto.Util.Padding import pad, unpad
 
+# AES Constants
 SBOX = [
     0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
     0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -21,35 +22,14 @@ SBOX = [
 ]
 INV_SBOX = [SBOX.index(x) for x in range(256)]
 RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36]
+Nb, Nk, Nr = 4, 4, 10
 
-Nb = 4  # Block size in words
-Nk = 4  # Key size in words (AES-128)
-Nr = 10 # Number of rounds (AES-128)
-
-def sub_bytes(state):
-    return [[SBOX[b] for b in row] for row in state]
-
-def inv_sub_bytes(state):
-    return [[INV_SBOX[b] for b in row] for row in state]
-
-def shift_rows(state):
-    return [
-        state[0],
-        state[1][1:] + state[1][:1],
-        state[2][2:] + state[2][:2],
-        state[3][3:] + state[3][:3],
-    ]
-
-def inv_shift_rows(state):
-    return [
-        state[0],
-        state[1][-1:] + state[1][:-1],
-        state[2][-2:] + state[2][:-2],
-        state[3][-3:] + state[3][:-3],
-    ]
-
-def xtime(a):
-    return ((a << 1) ^ 0x1B) & 0xFF if a & 0x80 else a << 1
+# --- Helper Functions ---
+def sub_bytes(state): return [[SBOX[b] for b in row] for row in state]
+def inv_sub_bytes(state): return [[INV_SBOX[b] for b in row] for row in state]
+def shift_rows(state): return [state[0], state[1][1:] + state[1][:1], state[2][2:] + state[2][:2], state[3][3:] + state[3][:3]]
+def inv_shift_rows(state): return [state[0], state[1][-1:] + state[1][:-1], state[2][-2:] + state[2][:-2], state[3][-3:] + state[3][:-3]]
+def xtime(a): return ((a << 1) ^ 0x1B) & 0xFF if a & 0x80 else a << 1
 
 def mix_columns(state):
     for i in range(4):
@@ -65,25 +45,21 @@ def inv_mix_columns(state):
     def mul(a, b):
         p = 0
         for _ in range(8):
-            if b & 1:
-                p ^= a
-            hi_bit_set = a & 0x80
+            if b & 1: p ^= a
+            hi_bit = a & 0x80
             a = (a << 1) & 0xFF
-            if hi_bit_set:
-                a ^= 0x1B
+            if hi_bit: a ^= 0x1B
             b >>= 1
         return p
-
     for i in range(4):
-        a = [state[row][i] for row in range(4)]
+        a = [state[r][i] for r in range(4)]
         state[0][i] = mul(a[0], 0x0e) ^ mul(a[1], 0x0b) ^ mul(a[2], 0x0d) ^ mul(a[3], 0x09)
         state[1][i] = mul(a[0], 0x09) ^ mul(a[1], 0x0e) ^ mul(a[2], 0x0b) ^ mul(a[3], 0x0d)
         state[2][i] = mul(a[0], 0x0d) ^ mul(a[1], 0x09) ^ mul(a[2], 0x0e) ^ mul(a[3], 0x0b)
         state[3][i] = mul(a[0], 0x0b) ^ mul(a[1], 0x0d) ^ mul(a[2], 0x09) ^ mul(a[3], 0x0e)
     return state
 
-def add_round_key(state, key):
-    return [[b ^ k for b, k in zip(s_row, k_row)] for s_row, k_row in zip(state, key)]
+def add_round_key(state, key): return [[s ^ k for s, k in zip(sr, kr)] for sr, kr in zip(state, key)]
 
 def key_expansion(key):
     key_symbols = list(key)
@@ -91,117 +67,110 @@ def key_expansion(key):
     for i in range(Nk, Nb * (Nr + 1)):
         temp = key_schedule[i-1][:]
         if i % Nk == 0:
-            temp = temp[1:] + temp[:1]
-            temp = [SBOX[b] for b in temp]
+            temp = [SBOX[b] for b in temp[1:] + temp[:1]]
             temp[0] ^= RCON[i // Nk - 1]
-        word = [a ^ b for a, b in zip(key_schedule[i-Nk], temp)]
-        key_schedule.append(word)
+        key_schedule.append([a ^ b for a, b in zip(key_schedule[i - Nk], temp)])
     return [key_schedule[4*i:4*(i+1)] for i in range(Nr + 1)]
 
-def bytes_to_matrix(b):
-    return [list(b[i::4]) for i in range(4)]
-
-def matrix_to_bytes(m):
-    return bytes(sum(zip(*m), ()))
+def bytes_to_matrix(b): return [list(b[i::4]) for i in range(4)]
+def matrix_to_bytes(m): return bytes(sum(zip(*m), ()))
+def xor_blocks(a, b): return bytes(i ^ j for i, j in zip(a, b))
 
 def encrypt_block(block, key_schedule):
     state = bytes_to_matrix(block)
     state = add_round_key(state, key_schedule[0])
     for rnd in range(1, Nr):
-        state = sub_bytes(state)
-        state = shift_rows(state)
-        state = mix_columns(state)
+        state = mix_columns(shift_rows(sub_bytes(state)))
         state = add_round_key(state, key_schedule[rnd])
-    state = sub_bytes(state)
-    state = shift_rows(state)
-    state = add_round_key(state, key_schedule[-1])
+    state = add_round_key(shift_rows(sub_bytes(state)), key_schedule[Nr])
     return matrix_to_bytes(state)
 
 def decrypt_block(block, key_schedule):
     state = bytes_to_matrix(block)
-    state = add_round_key(state, key_schedule[-1])
+    state = add_round_key(state, key_schedule[Nr])
     for rnd in range(Nr - 1, 0, -1):
-        state = inv_shift_rows(state)
-        state = inv_sub_bytes(state)
-        state = add_round_key(state, key_schedule[rnd])
-        state = inv_mix_columns(state)
-    state = inv_shift_rows(state)
-    state = inv_sub_bytes(state)
-    state = add_round_key(state, key_schedule[0])
+        state = inv_mix_columns(add_round_key(inv_sub_bytes(inv_shift_rows(state)), key_schedule[rnd]))
+    state = add_round_key(inv_sub_bytes(inv_shift_rows(state)), key_schedule[0])
     return matrix_to_bytes(state)
-
-def xor_blocks(a, b):
-    return bytes(i ^ j for i, j in zip(a, b))
 
 def encrypt_cbc(plaintext, key):
     iv = os.urandom(16)
-    padded = pad(plaintext, 16)
-    blocks = [padded[i:i+16] for i in range(0, len(padded), 16)]
+    blocks = [pad(plaintext, 16)[i:i+16] for i in range(0, len(pad(plaintext, 16)), 16)]
     key_schedule = key_expansion(key)
-    ciphertext = b''
+    ciphertext = iv
     prev = iv
     for block in blocks:
-        xored = xor_blocks(block, prev)
-        enc = encrypt_block(xored, key_schedule)
+        enc = encrypt_block(xor_blocks(block, prev), key_schedule)
         ciphertext += enc
         prev = enc
-    return iv + ciphertext
+    return ciphertext
 
 def decrypt_cbc(ciphertext, key):
-    iv = ciphertext[:16]
-    ciphertext = ciphertext[16:]
+    iv, ciphertext = ciphertext[:16], ciphertext[16:]
     blocks = [ciphertext[i:i+16] for i in range(0, len(ciphertext), 16)]
     key_schedule = key_expansion(key)
     plaintext = b''
     prev = iv
     for block in blocks:
-        dec = decrypt_block(block, key_schedule)
-        plaintext += xor_blocks(dec, prev)
+        dec = xor_blocks(decrypt_block(block, key_schedule), prev)
+        plaintext += dec
         prev = block
     try:
         return unpad(plaintext, 16)
     except ValueError:
-        # Return raw plaintext if padding is invalid to avoid crashing
-        return plaintext
+        return plaintext  # Return raw if padding invalid
 
-def encrypt_file_ascii(input_file, output_file, key):
-    with open(input_file, 'rb') as f:
-        data = f.read()
-    encrypted = encrypt_cbc(data, key)
-    hex_output = encrypted.hex()
-    with open(output_file, 'w', encoding='ascii') as f:
-        f.write(hex_output)
-    print(f"Encrypted content saved as hex to '{output_file}'")
 
-def decrypt_file_ascii(input_file, output_file, key):
-    with open(input_file, 'r', encoding='ascii') as f:
-        hex_data = f.read().strip()
+# === Modular Interface ===
+def aes_encrypt_file(key: bytes, input_file="texts/input.txt", output_file="texts/aes-encrypted.txt"):
     try:
-        encrypted = bytes.fromhex(hex_data)
-    except ValueError:
-        print("Error: Input file does not contain valid hexadecimal data.")
+        with open(input_file, 'r', encoding='utf-8') as f:
+            plaintext = f.read()
+        plaintext_bytes = plaintext.encode('utf-8')
+    except FileNotFoundError:
+        print(f"Error: File '{input_file}' not found.")
         return
+
+    encrypted = encrypt_cbc(plaintext_bytes, key)
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(encrypted.hex())
+    print(f"Encrypted result saved to '{output_file}'.")
+
+
+def aes_decrypt_file(key: bytes, input_file="texts/aes-encrypted.txt", output_file="texts/aes-decrypted.txt"):
+    try:
+        with open(input_file, 'r', encoding='utf-8') as f:
+            hex_data = f.read().strip()
+        encrypted = bytes.fromhex(hex_data)
+    except (FileNotFoundError, ValueError):
+        print("Error: Could not load or decode encrypted hex.")
+        return
+
     decrypted = decrypt_cbc(encrypted, key)
-    with open(output_file, 'wb') as f:
-        f.write(decrypted)
-    print(f"Decrypted content saved to '{output_file}'")
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write(decrypted.decode('utf-8', errors='replace'))
+    print(f"Decrypted result saved to '{output_file}'.")
 
 
+# === CLI Entry Point ===
 def main():
-    print("=== AES-128 CBC Encryption/Decryption (Hex Output) ===")
+    print("=== AES-128 CBC Mode ===")
     mode = input("Encrypt or Decrypt? (E/D): ").strip().upper()
     key_input = input("Enter a 16-character key: ").encode()
     if len(key_input) != 16:
-        print("Key must be exactly 16 bytes.")
+        print("Error: Key must be exactly 16 bytes.")
         return
-    input_file = input("Input file: ").strip()
-    output_file = input("Output file: ").strip()
+
+    input_path = input("Input file path: ").strip()
+    output_path = input("Output file path: ").strip()
+
     if mode == 'E':
-        encrypt_file_ascii(input_file, output_file, key_input)
+        aes_encrypt_file(key=key_input, input_file=input_path, output_file=output_path)
     elif mode == 'D':
-        decrypt_file_ascii(input_file, output_file, key_input)
+        aes_decrypt_file(key=key_input, input_file=input_path, output_file=output_path)
     else:
         print("Invalid mode. Use 'E' or 'D'.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
