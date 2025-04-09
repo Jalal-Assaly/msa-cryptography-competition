@@ -1,9 +1,10 @@
-def encrypt_message(plaintext: str, e: int, n: int) -> str:
+def encrypt_message(hex_plaintext: str, e: int, n: int) -> str:
+    plaintext_bytes = bytes.fromhex(hex_plaintext)
     block_length = (n.bit_length() + 7) // 8
     ciphertext = []
 
-    for char in plaintext:
-        m = ord(char)
+    for byte in plaintext_bytes:
+        m = byte
         c = pow(m, e, n)
         ciphertext.append(c.to_bytes(block_length, 'big'))
 
@@ -11,18 +12,26 @@ def encrypt_message(plaintext: str, e: int, n: int) -> str:
     return encrypted_bytes.hex()
 
 
-def decrypt_message(ciphertext_hex: str, d: int, n: int) -> str:
-    encrypted_bytes = bytes.fromhex(ciphertext_hex)
+def decrypt_message(hex_ciphertext: str, d: int, n: int) -> str:
+    encrypted_bytes = bytes.fromhex(hex_ciphertext)
     block_length = (n.bit_length() + 7) // 8
-    plaintext = []
+    plaintext_bytes = []
 
     for i in range(0, len(encrypted_bytes), block_length):
         encrypted_block = encrypted_bytes[i:i + block_length]
         c = int.from_bytes(encrypted_block, 'big')
         m = pow(c, d, n)
-        plaintext.append(chr(m))
 
-    return ''.join(plaintext)
+        try:
+            byte = m.to_bytes(1, 'big')  # only works if m < 256
+        except OverflowError:
+            # If the decrypted value doesn't fit in 1 byte, it's likely due to wrong keys
+            byte = b'?'
+
+        plaintext_bytes.append(byte)
+
+    decrypted_bytes = b''.join(plaintext_bytes)
+    return decrypted_bytes.hex()
 
 
 def rsa_encrypt_file(e: int, n: int, input_file="texts/input.txt", output_file="texts/rsa-encrypted.txt"):

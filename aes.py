@@ -121,34 +121,48 @@ def decrypt_cbc(ciphertext, key):
         return plaintext  # Return raw if padding invalid
 
 
+def aes_encrypt(hex_plaintext: str, key: bytes) -> str:
+    plaintext_bytes = bytes.fromhex(hex_plaintext)
+    ciphertext = encrypt_cbc(plaintext_bytes, key)
+    return ciphertext.hex()
+
+
+def aes_decrypt(hex_ciphertext: str, key: bytes) -> str:
+    ciphertext_bytes = bytes.fromhex(hex_ciphertext)
+    decrypted_bytes = decrypt_cbc(ciphertext_bytes, key)
+    return decrypted_bytes.hex()
+
+
 # === Modular Interface ===
 def aes_encrypt_file(key: bytes, input_file="texts/input.txt", output_file="texts/aes-encrypted.txt"):
     try:
         with open(input_file, 'r', encoding='utf-8') as f:
-            plaintext = f.read()
-        plaintext_bytes = plaintext.encode('utf-8')
+            hex_plaintext = f.read().strip()
     except FileNotFoundError:
         print(f"Error: File '{input_file}' not found.")
         return
 
-    encrypted = encrypt_cbc(plaintext_bytes, key)
+    encrypted_hex = aes_encrypt(hex_plaintext, key)
+
     with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(encrypted.hex())
+        f.write(encrypted_hex)
+
     print(f"Encrypted result saved to '{output_file}'.")
 
 
 def aes_decrypt_file(key: bytes, input_file="texts/aes-encrypted.txt", output_file="texts/aes-decrypted.txt"):
     try:
         with open(input_file, 'r', encoding='utf-8') as f:
-            hex_data = f.read().strip()
-        encrypted = bytes.fromhex(hex_data)
+            hex_ciphertext = f.read().strip()
     except (FileNotFoundError, ValueError):
         print("Error: Could not load or decode encrypted hex.")
         return
 
-    decrypted = decrypt_cbc(encrypted, key)
+    decrypted_hex = aes_decrypt(hex_ciphertext, key)
+
     with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(decrypted.decode('utf-8', errors='replace'))
+        f.write(decrypted_hex)
+
     print(f"Decrypted result saved to '{output_file}'.")
 
 
