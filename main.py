@@ -1,148 +1,122 @@
-from rsa import rsa_encrypt_file, rsa_decrypt_file
-from autokey import autokey_encrypt_file, autokey_decrypt_file
-from aes import aes_encrypt_file, aes_decrypt_file
+#!/usr/bin/env python3
+from Crypto.Cipher import AES
+from Crypto.PublicKey import RSA
+from Crypto.Util.Padding import pad, unpad
+from hashlib import sha256
 
+# --- Weak Vigenère Functions ---
+def vigenere_encrypt(plaintext, key):
+    ciphertext = ""
+    key = key.upper()
+    plaintext = plaintext.upper()
+    key_length = len(key)
+    for i, letter in enumerate(plaintext):
+        if letter.isalpha():
+            shift = ord(key[i % key_length]) - ord('A')
+            ciphertext += chr(((ord(letter) - ord('A') + shift) % 26) + ord('A'))
+        else:
+            ciphertext += letter
+    return ciphertext
 
-def convert_plaintext_to_hex(input_path: str, output_path: str):
-    try:
-        with open(input_path, 'r', encoding='utf-8') as f:
-            plain_text = f.read()
-    except FileNotFoundError:
-        print(f"Error: File '{input_path}' not found.")
-        return False
+def vigenere_decrypt(ciphertext, key):
+    plaintext = ""
+    key = key.upper()
+    ciphertext = ciphertext.upper()
+    key_length = len(key)
+    for i, letter in enumerate(ciphertext):
+        if letter.isalpha():
+            shift = ord(key[i % key_length]) - ord('A')
+            plaintext += chr(((ord(letter) - ord('A') - shift) % 26) + ord('A'))
+        else:
+            plaintext += letter
+    return plaintext
 
-    hex_text = plain_text.encode('utf-8').hex()
+# --- Weak AES Functions ---
+def weak_aes_encrypt(data_bytes, aes_key):
+    # Use fixed IV (all zeros) for intentional weakness
+    iv = b'\x00' * 16
+    cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+    ciphertext = cipher.encrypt(pad(data_bytes, AES.block_size))
+    return ciphertext, iv
 
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(hex_text)
+def weak_aes_decrypt(ciphertext, aes_key, iv):
+    cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+    decrypted = unpad(cipher.decrypt(ciphertext), AES.block_size)
+    return decrypted
 
-    print(f"Converted plaintext to hex and saved to '{output_path}'.")
-    return True
+def derive_key_from_passphrase(passphrase):
+    return sha256(passphrase.encode('utf-8')).digest()[:16]
 
+# --- Weak RSA Functions ---
+def weak_rsa_setup():
+    # Generate a small RSA key (1024-bit) for competition purposes
+    rsa_key = RSA.generate(1024)
+    return rsa_key, rsa_key.publickey()
 
-def hex_to_plaintext(hex_string: str) -> str:
-    try:
-        return bytes.fromhex(hex_string).decode('utf-8', errors='replace')
-    except ValueError:
-        return "[Invalid hex input]"
+def rsa_encrypt(data, rsa_public_key):
+    from Crypto.Cipher import PKCS1_OAEP
+    cipher_rsa = PKCS1_OAEP.new(rsa_public_key)
+    return cipher_rsa.encrypt(data)
 
+def rsa_decrypt(encrypted_data, rsa_private_key):
+    from Crypto.Cipher import PKCS1_OAEP
+    cipher_rsa = PKCS1_OAEP.new(rsa_private_key)
+    return cipher_rsa.decrypt(encrypted_data)
 
-def write_to_output_file(file_path: str, is_encryption: bool):
-    """
-    Writes the final result to 'texts/output.txt'.
-    If it's decryption, convert from hex to readable text.
-    """
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
-    except FileNotFoundError:
-        print(f"Error: File '{file_path}' not found.")
-        return
+# --- Combined Weak Three-Layer Encryption ---
+def weak_three_layer_encrypt(plaintext, vigenere_key, aes_passphrase, rsa_public_key):
+    # Layer 1: Weak Vigenère encryption
+    layer1_text = vigenere_encrypt(plaintext, vigenere_key)
+    layer1_bytes = layer1_text.encode('utf-8')
+    
+    # Layer 2: Weak AES encryption with derived key and fixed IV
+    aes_key = derive_key_from_passphrase(aes_passphrase)
+    ciphertext_aes, iv = weak_aes_encrypt(layer1_bytes, aes_key)
+    
+    # Layer 3: RSA encryption of the AES key and IV (using a small RSA key)
+    # Here we simply send the derived key and IV; a contestant might attempt RSA factoring.
+    key_iv = aes_key + iv
+    encrypted_key_iv = rsa_encrypt(key_iv, rsa_public_key)
+    
+    return {
+        'rsa': encrypted_key_iv,
+        'aes': ciphertext_aes,
+        'vigenere': layer1_text,
+        'aes_key': aes_key,
+        'iv': iv
+    }
 
-    output_path = "texts/output.txt"
-    result = content if is_encryption else hex_to_plaintext(content)
-
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(result)
-
-    print(f"Final result written to '{output_path}'.")
-
-
-def autokey_rsa_aes_encrypt(rsa_public_key, aes_key, autokey_initial_key):
-    """
-    Encrypts the file using Autokey → RSA → AES.
-    """
-    autokey_encrypt_file(
-        initial_key=autokey_initial_key,
-        input_file="texts/input-hex.txt",
-        output_file="texts/autokey-encrypted.txt"
-    )
-
-    rsa_encrypt_file(
-        e=rsa_public_key[0],
-        n=rsa_public_key[1],
-        input_file="texts/autokey-encrypted.txt",
-        output_file="texts/rsa-encrypted.txt"
-    )
-
-    aes_encrypt_file(
-        key=aes_key,
-        input_file="texts/rsa-encrypted.txt",
-        output_file="texts/aes-encrypted.txt"
-    )
-
-    print("\nAutokey + RSA + AES encryption completed.")
-    write_to_output_file("texts/aes-encrypted.txt", is_encryption=True)
-
-
-def autokey_rsa_aes_decrypt(rsa_private_key, aes_key, autokey_initial_key):
-    """
-    Decrypts the file using AES → RSA → Autokey.
-    """
-    aes_decrypt_file(
-        key=aes_key,
-        input_file="texts/aes-encrypted.txt",
-        output_file="texts/aes-decrypted.txt"
-    )
-
-    rsa_decrypt_file(
-        d=rsa_private_key[0],
-        n=rsa_private_key[1],
-        input_file="texts/aes-decrypted.txt",
-        output_file="texts/rsa-decrypted.txt"
-    )
-
-    autokey_decrypt_file(
-        initial_key=autokey_initial_key,
-        input_file="texts/rsa-decrypted.txt",
-        output_file="texts/autokey-decrypted.txt"
-    )
-
-    print("\nAES + RSA + Autokey decryption completed.")
-    write_to_output_file("texts/autokey-decrypted.txt", is_encryption=False)
-
-
-def autokey_rsa_aes_execute():
-    print("=== Autokey → RSA → AES Encryption / AES → RSA → Autokey Decryption ===")
-    mode = input("Enter mode (encrypt/decrypt): ").strip().lower()
-
-    if mode == "encrypt":
-        rsa_public_key = (
-            int(input("Enter RSA public key 'e': ").strip()),
-            int(input("Enter RSA public key 'n': ").strip())
-        )
-
-        aes_key = input("Enter a 16-character AES key: ").encode()
-        if len(aes_key) != 16:
-            print("Error: AES key must be exactly 16 bytes.")
-            return
-
-        autokey_initial_key = int(input("Enter Autokey initial numeric key (0–255): ").strip()) % 256
-
-        print("\n--- Converting plaintext to hex ---")
-        if not convert_plaintext_to_hex("texts/input.txt", "texts/input-hex.txt"):
-            return
-
-        autokey_rsa_aes_encrypt(rsa_public_key, aes_key, autokey_initial_key)
-
-    elif mode == "decrypt":
-        rsa_private_key = (
-            int(input("Enter RSA private key 'd': ").strip()),
-            int(input("Enter RSA private key 'n': ").strip())
-        )
-
-        aes_key = input("Enter the 16-character AES key used for encryption: ").encode()
-        if len(aes_key) != 16:
-            print("Error: AES key must be exactly 16 bytes.")
-            return
-
-        autokey_initial_key = int(input("Enter Autokey initial numeric key used during encryption (0–255): ").strip()) % 256
-
-        autokey_rsa_aes_decrypt(rsa_private_key, aes_key, autokey_initial_key)
-
-    else:
-        print("Invalid mode. Use 'encrypt' or 'decrypt'.")
-
+def weak_three_layer_decrypt(ciphertext_dict, vigenere_key, aes_passphrase, rsa_private_key):
+    # Recover RSA part to extract AES key and IV
+    key_iv = rsa_decrypt(ciphertext_dict['rsa'], rsa_private_key)
+    aes_key = key_iv[:16]
+    iv = key_iv[16:]
+    
+    # Decrypt AES ciphertext
+    decrypted_layer1_bytes = weak_aes_decrypt(ciphertext_dict['aes'], aes_key, iv)
+    layer1_text = decrypted_layer1_bytes.decode('utf-8')
+    
+    # Decrypt Vigenère ciphertext
+    plaintext = vigenere_decrypt(layer1_text, vigenere_key)
+    return plaintext
 
 if __name__ == "__main__":
-    autokey_rsa_aes_execute()
+    # Setup weak RSA for the challenge
+    rsa_private, rsa_public = weak_rsa_setup()
+    
+    # Use intentionally weak keys and passphrase
+    vigenere_key = "ABC"  # Very short Vigenère key
+    aes_passphrase = "weakpass123"  # Passphrase from which the AES key is derived
+    plaintext = "THISISASECRETMESSAGEFORCRYPTOCOMPETITION"
+    
+    # Encrypt using the intentionally weak three-layer scheme
+    encrypted = weak_three_layer_encrypt(plaintext, vigenere_key, aes_passphrase, rsa_public)
+    print("Encrypted Data:")
+    print("RSA Part (hex):", encrypted['rsa'].hex())
+    print("AES Part (hex):", encrypted['aes'].hex())
+    print("Vigenère Part:", encrypted['vigenere'])
+    
+    # In a real crypto challenge, contestants might be provided the ciphertext and
+    # be expected to exploit the weaknesses.
+    decrypted = weak_three_layer_decrypt(encrypted, vigenere_key, aes_passphrase, rsa_private)
+    print("\nRecovered Plaintext:", decrypted)
